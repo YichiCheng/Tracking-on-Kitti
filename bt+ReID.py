@@ -30,7 +30,7 @@ model = YOLO("yolov8m.pt", verbose=False)
 tracker = BYTETracker(TrackerArgs(), frame_rate=30)
 
 # 创建输出目录
-OUTPUT_PATH = "C:/yichi/PycharmProjects/YOLOv8_Project/TrackEval/data/trackers/kitti/kitti_2d_box_train/T4/data/"
+OUTPUT_PATH = "C:/yichi/PycharmProjects/YOLOv8_Project/TrackEval/data/trackers/kitti/kitti_2d_box_train/T3/data/"
 VISUAL_OUTPUT_PATH = "C:/yichi/bt_visual_output2/"
 os.makedirs(OUTPUT_PATH, exist_ok=True)
 os.makedirs(VISUAL_OUTPUT_PATH, exist_ok=True)
