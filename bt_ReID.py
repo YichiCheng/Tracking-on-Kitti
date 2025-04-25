@@ -2,7 +2,7 @@ import os
 import cv2
 import numpy as np
 from ultralytics import YOLO
-from byte_tracker1 import BYTETracker
+from byte_tracker_ReID import BYTETracker
 from ultralytics.utils import LOGGER
 
 LOGGER.setLevel(50)  # 只保留关键错误日志
