@@ -20,9 +20,9 @@ class BoTSORTArgs:
     def __init__(self):
         self.track_high_thresh = 0.6
         self.track_low_thresh = 0.1
-        self.new_track_thresh = 0.6
+        self.new_track_thresh = 0.5
         self.track_buffer = 30
-        self.match_thresh = 0.8
+        self.match_thresh = 0.5
         self.proximity_thresh = 0.5
         self.appearance_thresh = 0.25
         self.with_reid = False
@@ -74,33 +74,39 @@ for seq_id in SEQUENCES:
             classes = r.boxes.cls.cpu().numpy()
 
             for box, score, cls in zip(boxes, scores, classes):
-                print(f"[DEBUG] Score: {score}, Class: {cls}")  # <--- 这里输出为 0？
                 cls = int(cls)
+                print(f"[DEBUG] YOLO Output → Score: {score:.3f}, Class ID: {cls}, Box: {box}")
                 if cls not in YOLO_CLASS_MAP or score < CONFIDENCE_THRESHOLD:
                     continue
 
                 x1, y1, x2, y2 = map(int, box)
-                detections.append([x1, y1, x2, y2, score, cls])  # 加入类别ID
+                detections.append([x1, y1, x2, y2, score, cls])
                 cls_list.append(YOLO_CLASS_MAP[cls])
 
-                # DEBUG: 打印每个检测框的信息
                 print(f"[Frame {i}] Detection: Box=({x1},{y1},{x2},{y2}), Score={score:.2f}, Class={YOLO_CLASS_MAP[cls]}")
-
                 cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
                 cv2.putText(image, f"{YOLO_CLASS_MAP[cls]} {score:.2f}", (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-        detections = np.array(detections, dtype=np.float32) if len(detections) > 0 else np.empty((0, 6), dtype=np.float32)
+        if len(detections) > 0:
+            detections = np.array(detections, dtype=np.float32)
+            print(f"[Frame {i}] Total valid detections: {len(detections)}")
+            for d in detections:
+                print(f"    → Sent to tracker: {d}")
+        else:
+            detections = np.empty((0, 6), dtype=np.float32)
 
         if len(detections) > 0:
-            print(f"[Frame {i}] Detections sent to tracker: {detections.shape}")
             tracks = tracker.update(detections, image)
-            print(f"[Frame {i}] Tracks returned: {len(tracks)}")
+            print(f"[Frame {i}] Tracker returned {len(tracks)} track(s)")
+            if len(tracks) == 0:
+                print(f"[DEBUG] [Frame {i}] Tracker failed to associate or create new tracks.")
         else:
             tracks = []
 
         end_time = time.time()
         frame_time = end_time - start_time
+        print(f"[Frame {i}] Processing time: {frame_time:.3f}s")
         total_time_all += frame_time
         total_frames_all += 1
 
@@ -118,13 +124,10 @@ for seq_id in SEQUENCES:
             x1, y1, x2, y2 = map(int, t.tlbr)
             track_id = t.track_id
             score = t.score
-
-            # 更鲁棒的类别推测逻辑
             cls_guess = cls_list[idx] if idx < len(cls_list) else "Car"
             cls = track_id_to_cls.get(track_id, cls_guess)
             track_id_to_cls[track_id] = cls
 
-            # DEBUG: 打印track的分配类别
             print(f"[Frame {i}] Track ID {track_id} → Class: {cls}, Score: {score:.2f}, Box: ({x1}, {y1}, {x2}, {y2})")
 
             frame_results.append([
@@ -155,3 +158,4 @@ for seq_id in SEQUENCES:
 
 fps_all = total_frames_all / total_time_all if total_time_all > 0 else 0
 print(f"\n[Summary] Average FPS: {fps_all:.2f} ({total_frames_all} frames in {total_time_all:.2f} seconds)")
+
