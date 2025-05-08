@@ -113,6 +113,7 @@ for seq_id in SEQUENCES:
         frame_results = []
         if len(tracks) == 0:
             print(f"[Frame {i}] No tracks returned — drawing detections only")
+            #以下这段导致了墨绿色错误可视化框
             for d in detections:
                 x1, y1, x2, y2, score, cls_id = map(int, d)
                 cls_name = YOLO_CLASS_MAP.get(cls_id, "Unknown")
