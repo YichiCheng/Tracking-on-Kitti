@@ -15,29 +15,30 @@ KITTI_PATH = "C:/yichi/kitti/training/image_02/"
 SEQUENCES = sorted(os.listdir(KITTI_PATH))
 
 model = YOLO("yolov8m-kitti-best-infer.pt", verbose=False)
+print(model.overrides)
 
 class BoTSORTArgs:
     def __init__(self):
         self.track_high_thresh = 0.6
         self.track_low_thresh = 0.1
-        self.new_track_thresh = 0.5
-        self.track_buffer = 30
-        self.match_thresh = 0.5
+        self.new_track_thresh = 0.25
+        self.track_buffer = 15
+        self.match_thresh = 0.8
         self.proximity_thresh = 0.5
         self.appearance_thresh = 0.25
-        self.with_reid = False
-        self.fast_reid_config = "configs/default.yaml"
-        self.fast_reid_weights = "weights/model.pth"
+        self.with_reid = True
+        self.fast_reid_config = "tracker_botsort/fastreid/config/VehicleID/bagtricks_R50-ibn.yml"
+        self.fast_reid_weights = "tracker_botsort/fastreid/vehicleid_bot_R50-ibn.pth"
         self.device = "cuda"
         self.cmc_method = "sparseOptFlow"
         self.name = "BoT-SORT"
         self.ablation = ""
         self.mot20 = False
 
-args = BoTSORTArgs()
-tracker = BoTSORT(args, frame_rate=30)
+#args = BoTSORTArgs()这段内容下移到for循环中了
+#tracker = BoTSORT(args, frame_rate=30)
 
-OUTPUT_PATH = "C:/yichi/PycharmProjects/YOLOv8_Project/TrackEval/data/trackers/kitti/kitti_2d_box_train/T6/data/"
+OUTPUT_PATH = "C:/yichi/PycharmProjects/YOLOv8_Project/TrackEval/data/trackers/kitti/kitti_2d_box_train/T13/data/"
 VISUAL_OUTPUT_PATH = "C:/yichi/botsort_visual_output/"
 os.makedirs(OUTPUT_PATH, exist_ok=True)
 os.makedirs(VISUAL_OUTPUT_PATH, exist_ok=True)
@@ -45,7 +46,20 @@ os.makedirs(VISUAL_OUTPUT_PATH, exist_ok=True)
 total_time_all = 0.0
 total_frames_all = 0
 
+def iou(box1, box2):
+    xi1, yi1 = max(box1[0], box2[0]), max(box1[1], box2[1])
+    xi2, yi2 = min(box1[2], box2[2]), min(box1[3], box2[3])
+    inter_area = max(xi2 - xi1, 0) * max(yi2 - yi1, 0)
+    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+    union_area = box1_area + box2_area - inter_area
+    return inter_area / union_area if union_area > 0 else 0
+
 for seq_id in SEQUENCES:
+    args = BoTSORTArgs()
+    args.cmc_method = "sparseOptFlow"
+    tracker = BoTSORT(args, frame_rate=30)
+
     seq_path = os.path.join(KITTI_PATH, seq_id)
     image_files = sorted(os.listdir(seq_path))
 
@@ -65,7 +79,7 @@ for seq_id in SEQUENCES:
         start_time = time.time()
 
         detections = []
-        cls_list = []
+        detection_info = []  # 新增：存储 detection 信息
         results = model(image)
 
         for r in results:
@@ -75,61 +89,54 @@ for seq_id in SEQUENCES:
 
             for box, score, cls in zip(boxes, scores, classes):
                 cls = int(cls)
-                print(f"[DEBUG] YOLO Output → Score: {score:.3f}, Class ID: {cls}, Box: {box}")
+
                 if cls not in YOLO_CLASS_MAP or score < CONFIDENCE_THRESHOLD:
                     continue
 
                 x1, y1, x2, y2 = map(int, box)
-                detections.append([x1, y1, x2, y2, score, cls])
-                cls_list.append(YOLO_CLASS_MAP[cls])
+                detections.append([x1, y1, x2, y2, score])
+                detection_info.append(((x1, y1, x2, y2), float(score), YOLO_CLASS_MAP[cls]))
 
-                print(f"[Frame {i}] Detection: Box=({x1},{y1},{x2},{y2}), Score={score:.2f}, Class={YOLO_CLASS_MAP[cls]}")
+
                 cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
                 cv2.putText(image, f"{YOLO_CLASS_MAP[cls]} {score:.2f}", (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-        if len(detections) > 0:
-            detections = np.array(detections, dtype=np.float32)
-            print(f"[Frame {i}] Total valid detections: {len(detections)}")
-            for d in detections:
-                print(f"    → Sent to tracker: {d}")
-        else:
-            detections = np.empty((0, 6), dtype=np.float32)
+        detections = np.array(detections, dtype=np.float32) if detections else np.empty((0, 6), dtype=np.float32)
 
         if len(detections) > 0:
             tracks = tracker.update(detections, image)
-            print(f"[Frame {i}] Tracker returned {len(tracks)} track(s)")
-            if len(tracks) == 0:
-                print(f"[DEBUG] [Frame {i}] Tracker failed to associate or create new tracks.")
+
+
         else:
             tracks = []
 
         end_time = time.time()
         frame_time = end_time - start_time
-        print(f"[Frame {i}] Processing time: {frame_time:.3f}s")
         total_time_all += frame_time
         total_frames_all += 1
 
         frame_results = []
-        if len(tracks) == 0:
-            print(f"[Frame {i}] No tracks returned — drawing detections only")
-            #以下这段导致了墨绿色错误可视化框
-            for d in detections:
-                x1, y1, x2, y2, score, cls_id = map(int, d)
-                cls_name = YOLO_CLASS_MAP.get(cls_id, "Unknown")
-                cv2.rectangle(image, (x1, y1), (x2, y2), (128, 128, 0), 2)
-                cv2.putText(image, f"{cls_name} {score:.2f}", (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (128, 128, 0), 2)
 
-        for idx, t in enumerate(tracks):
+        for t in tracks:
             x1, y1, x2, y2 = map(int, t.tlbr)
             track_id = t.track_id
             score = t.score
-            cls_guess = cls_list[idx] if idx < len(cls_list) else "Car"
-            cls = track_id_to_cls.get(track_id, cls_guess)
-            track_id_to_cls[track_id] = cls
 
-            print(f"[Frame {i}] Track ID {track_id} → Class: {cls}, Score: {score:.2f}, Box: ({x1}, {y1}, {x2}, {y2})")
+            # 用 IOU 匹配 detection → 赋类
+            best_iou = 0
+            best_cls = "Car"
+            best_score = 0.0
+            for det_box, det_score, det_cls in detection_info:
+                current_iou = iou((x1, y1, x2, y2), det_box)
+                if current_iou > best_iou:
+                    best_iou = current_iou
+                    best_cls = det_cls
+                    best_score = det_score
+
+            cls = track_id_to_cls.get(track_id, best_cls)
+            track_id_to_cls[track_id] = cls
+            score = best_score
 
             frame_results.append([
                 i, track_id, cls,
